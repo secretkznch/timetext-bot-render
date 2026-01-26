@@ -242,7 +242,7 @@ def send_webhook(content: str, username: str = None, avatar_url: str = None) -> 
         return False
 
     bot_name = os.getenv("BOT_NAME", "LSSD Recruitment")
-    bot_avatar = os.getenv("BOT_AVATAR", "https://i.imgur.com/7hYvD4Z.png")
+    bot_avatar = os.getenv("BOT_AVATAR", "https://i.postimg.cc/jSLXV2Rd/image.png")
 
     data = {
         "content": content,
@@ -394,4 +394,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("👋 Бот остановлен")
     except Exception as e:
+
         logger.error(f"❌ Критическая ошибка: {e}")
