@@ -1,6 +1,6 @@
 """
-🤖 LSSD RECRUITMENT BOT для Render.com
-Автономный бот для отправки сообщений с упоминаниями ролей и каналов
+🤖 LSSD BOT - Исправленная версия для Render
+С правильным UTC временем и keep-alive
 """
 
 import requests
@@ -12,38 +12,37 @@ import schedule
 import threading
 import logging
 from dotenv import load_dotenv
-
-# ===================== ДЛЯ RENDER =====================
-# Render требует веб-сервер даже для worker
-from flask import Flask
+from flask import Flask, jsonify
 from threading import Thread
 
+# ===================== FLASK ДЛЯ RENDER =====================
 app = Flask(__name__)
-
 
 @app.route('/')
 def home():
-    return "🤖 LSSD Recruitment Bot is running! 🚀"
-
+    return "🤖 LSSD Bot работает! Время UTC, keep-alive каждые 14 мин"
 
 @app.route('/health')
 def health():
-    return {"status": "ok", "time": datetime.now().isoformat(), "service": "LSSD Bot"}
+    return jsonify({
+        "status": "ok",
+        "time_utc": datetime.utcnow().strftime("%H:%M:%S"),
+        "time_msk": (datetime.utcnow().hour + 3) % 24,
+        "next_messages": get_next_messages()
+    })
 
+def get_next_messages():
+    jobs = list(schedule.get_jobs())
+    if not jobs:
+        return "Нет задач"
+    next_job = min(jobs, key=lambda x: x.next_run)
+    return f"Следующее: {get_job_name(next_job)} в {next_job.next_run.strftime('%H:%M UTC')}"
 
-def run_flask():
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
-
-
-# ===================== ЗАГРУЗКА ПЕРЕМЕННЫХ =====================
+# ===================== ЗАГРУЗКА КОНФИГА =====================
 load_dotenv()
 
-# 1. WEBHOOK_URL
-WEBHOOK_URL = os.getenv("WEBHOOK_URL",
-                        "https://discord.com/api/webhooks/1465437781269413939/KIgMfZGrjZD6u9CSi85-n0SuTr0aY0YRmGYQx3mn9qzgs3hCS12jJcpWTFXljD8872J0")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://discord.com/api/webhooks/1465437781269413939/KIgMfZGrjZD6u9CSi85-n0SuTr0aY0YRmGYQx3mn9qzgs3hCS12jJcpWTFXljD8872J0")
 
-# 2. ID РОЛЕЙ
 ROLES = {
     "LSSD": os.getenv("ROLE_LSSD", "714751439561293843"),
     "RD": os.getenv("ROLE_RD", "1095384636336644248"),
@@ -52,7 +51,6 @@ ROLES = {
     "RDB": os.getenv("ROLE_RDB", "904140370605129769"),
 }
 
-# 3. ID КАНАЛОВ
 CHANNELS = {
     "APPLICATIONS_RD": os.getenv("CHANNEL_APPLICATIONS_RD", "1275464311309078663"),
     "APPLICATIONS_SEB": os.getenv("CHANNEL_APPLICATIONS_SEB", "1275464288785661974"),
@@ -61,15 +59,16 @@ CHANNELS = {
     "SERVER_ID": os.getenv("SERVER_ID", "714751439510962246")
 }
 
-# 4. РАСПИСАНИЕ
+# ===================== ВАЖНО: ВРЕМЯ В UTC =====================
+# Москва UTC+3: вычитаем 3 часа
 SCHEDULES = {
-    "rd": ["10:00", "16:00", "21:00"],
-    "seb": ["11:30", "17:30", "22:00"],
-    "pb": ["09:00", "14:00", "19:30"],
-    "rdb": ["12:00", "18:00", "23:00"]
+    "rd": ["07:00", "13:00", "18:00"],    # МСК: 10:00, 16:00, 21:00
+    "seb": ["08:30", "14:30", "19:00"],   # МСК: 11:30, 17:30, 22:00
+    "pb": ["06:00", "11:00", "16:30"],    # МСК: 09:00, 14:00, 19:30
+    "rdb": ["09:00", "15:00", "20:00"]    # МСК: 12:00, 18:00, 23:00
 }
 
-# 5. ТЕКСТЫ СООБЩЕНИЙ
+# ===================== ТЕКСТЫ СООБЩЕНИЙ =====================
 MESSAGES = {
     "rd": {
         "name": "Rangers Division",
@@ -88,7 +87,7 @@ MESSAGES = {
 
 🧠 **Знание законов штата:** Будьте готовы применять свои знания на практике!
 🚗 **Водительское удостоверение:** Без него никуда!
-🎤 **Четкая речь:** Важно уметь доносить свои мысли до окружающих.
+🎤 **Четкая речь:** Важно уметь доносить свои мысли до окружающим.
 ♾️ **Готовность к обучению:** Мир не стоит на месте, и мы тоже! Развивайтесь вместе с нами!
 
 **Ваша миссия:**
@@ -197,202 +196,158 @@ MESSAGES = {
 # ===================== ЛОГГИРОВАНИЕ =====================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s UTC - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
+# ===================== ФУНКЦИИ =====================
+def format_role_mention(role_key):
+    return f"<@&{ROLES.get(role_key, role_key)}>" if role_key in ROLES else f"@{role_key}"
 
-# ===================== ФУНКЦИИ БОТА =====================
-def format_role_mention(role_key: str) -> str:
-    if role_key in ROLES:
-        return f"<@&{ROLES[role_key]}>"
-    return f"@{role_key}"
+def format_channel_mention(channel_key):
+    return f"<#{CHANNELS.get(channel_key, channel_key)}>" if channel_key in CHANNELS else f"#{channel_key}"
 
-
-def format_channel_mention(channel_key: str) -> str:
-    if channel_key in CHANNELS:
-        return f"<#{CHANNELS[channel_key]}>"
-    return f"#{channel_key}"
-
-
-def prepare_message(message_key: str) -> str:
-    if message_key not in MESSAGES:
+def prepare_message(message_key):
+    msg_data = MESSAGES.get(message_key)
+    if not msg_data:
         return ""
-
-    msg_data = MESSAGES[message_key]
+    
     content = msg_data["content"]
-
-    for role_key in msg_data.get("roles", []):
-        placeholder = "{" + role_key + "}"
-        mention = format_role_mention(role_key)
-        content = content.replace(placeholder, mention)
-
-    for channel_key in msg_data.get("channels", []):
-        placeholder = "{" + channel_key + "}"
-        mention = format_channel_mention(channel_key)
-        content = content.replace(placeholder, mention)
-
+    for role in msg_data.get("roles", []):
+        content = content.replace(f"{{{role}}}", format_role_mention(role))
+    for channel in msg_data.get("channels", []):
+        content = content.replace(f"{{{channel}}}", format_channel_mention(channel))
+    
     return content
 
-
-def send_webhook(content: str, username: str = None, avatar_url: str = None) -> bool:
-    if not WEBHOOK_URL or "discord.com/api/webhooks/" not in WEBHOOK_URL:
-        logger.error("❌ Неверный URL вебхука!")
+def send_webhook(content, username="LSSD Bot"):
+    if not WEBHOOK_URL:
+        logger.error("❌ Нет WEBHOOK_URL")
         return False
-
-    bot_name = os.getenv("BOT_NAME", "LSSD Recruitment")
-    bot_avatar = os.getenv("BOT_AVATAR", "https://i.postimg.cc/jSLXV2Rd/image.png")
-
+    
     data = {
         "content": content,
-        "username": username or bot_name,
-        "avatar_url": avatar_url or bot_avatar
+        "username": username,
+        "avatar_url": os.getenv("BOT_AVATAR", "https://i.postimg.cc/jSLXV2Rd/image.png")
     }
-
+    
     try:
-        response = requests.post(
-            WEBHOOK_URL,
-            json=data,
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-
+        response = requests.post(WEBHOOK_URL, json=data, timeout=10)
         if response.status_code in [200, 204]:
-            logger.info("✅ Сообщение отправлено успешно")
+            logger.info(f"✅ Отправлено: {username}")
             return True
         else:
-            logger.error(f"❌ Ошибка отправки: {response.status_code} - {response.text[:100]}")
+            logger.error(f"❌ Ошибка {response.status_code}")
             return False
-
-    except requests.exceptions.Timeout:
-        logger.error("❌ Таймаут при отправке сообщения")
-        return False
-    except requests.exceptions.ConnectionError:
-        logger.error("❌ Ошибка подключения к Discord")
-        return False
     except Exception as e:
-        logger.error(f"❌ Неизвестная ошибка: {e}")
+        logger.error(f"❌ Ошибка сети: {e}")
         return False
 
+def send_rd():
+    content = prepare_message("rd")
+    return send_webhook(content, "Rangers Division")
 
-def send_message(message_key: str) -> bool:
-    if message_key not in MESSAGES:
-        logger.error(f"❌ Неизвестный ключ сообщения: {message_key}")
-        return False
+def send_seb():
+    content = prepare_message("seb")
+    return send_webhook(content, "Special Enforcement Bureau")
 
-    msg_data = MESSAGES[message_key]
-    content = prepare_message(message_key)
+def send_pb():
+    content = prepare_message("pb")
+    return send_webhook(content, "Patrol Bureau")
 
-    if not content:
-        logger.error(f"❌ Не удалось подготовить сообщение: {message_key}")
-        return False
+def send_rdb():
+    content = prepare_message("rdb")
+    return send_webhook(content, "Recruiting and Discipline Bureau")
 
-    logger.info(f"📨 Отправка: {msg_data['name']}")
-    return send_webhook(content, f"{msg_data['name']} Recruitment")
+# ===================== KEEP-ALIVE ДЛЯ RENDER =====================
+def keep_alive_ping():
+    """ВАЖНО: Предотвращаем сон Render"""
+    logger.info("🔄 Keep-alive: бот активен")
 
-
-def send_rd() -> bool:
-    return send_message("rd")
-
-
-def send_seb() -> bool:
-    return send_message("seb")
-
-
-def send_pb() -> bool:
-    return send_message("pb")
-
-
-def send_rdb() -> bool:
-    return send_message("rdb")
-
-
+# ===================== НАСТРОЙКА РАСПИСАНИЯ =====================
 def setup_schedule():
     schedule.clear()
+    
+    # ВАЖНО: Keep-alive каждые 14 минут (меньше 15!)
+    schedule.every(14).minutes.do(keep_alive_ping)
+    
+    # РАСПИСАНИЕ В UTC!
+    # RD
+    for t in SCHEDULES["rd"]:
+        schedule.every().day.at(t).do(send_rd)
+        logger.info(f"📅 RD в {t} UTC ({int(t[:2])+3}:{t[3:]} МСК)")
+    
+    # SEB
+    for t in SCHEDULES["seb"]:
+        schedule.every().day.at(t).do(send_seb)
+        logger.info(f"📅 SEB в {t} UTC ({int(t[:2])+3}:{t[3:]} МСК)")
+    
+    # PB
+    for t in SCHEDULES["pb"]:
+        schedule.every().day.at(t).do(send_pb)
+        logger.info(f"📅 PB в {t} UTC ({int(t[:2])+3}:{t[3:]} МСК)")
+    
+    # RDB
+    for t in SCHEDULES["rdb"]:
+        schedule.every().day.at(t).do(send_rdb)
+        logger.info(f"📅 RDB в {t} UTC ({int(t[:2])+3}:{t[3:]} МСК)")
+    
+    logger.info(f"✅ Расписание настроено. Задач: {len(schedule.get_jobs())}")
 
-    if "rd" in SCHEDULES:
-        for time_str in SCHEDULES["rd"]:
-            schedule.every().day.at(time_str).do(send_rd)
-            logger.info(f"📅 RD запланировано на {time_str}")
+def get_job_name(job):
+    func_name = job.job_func.__name__
+    if "rd" in func_name: return "RD"
+    if "seb" in func_name: return "SEB"
+    if "pb" in func_name: return "PB"
+    if "rdb" in func_name: return "RDB"
+    if "keep" in func_name: return "Keep-alive"
+    return "Unknown"
 
-    if "seb" in SCHEDULES:
-        for time_str in SCHEDULES["seb"]:
-            schedule.every().day.at(time_str).do(send_seb)
-            logger.info(f"📅 SEB запланировано на {time_str}")
-
-    if "pb" in SCHEDULES:
-        for time_str in SCHEDULES["pb"]:
-            schedule.every().day.at(time_str).do(send_pb)
-            logger.info(f"📅 PB запланировано на {time_str}")
-
-    if "rdb" in SCHEDULES:
-        for time_str in SCHEDULES["rdb"]:
-            schedule.every().day.at(time_str).do(send_rdb)
-            logger.info(f"📅 RDB запланировано на {time_str}")
-
-    total_jobs = len(schedule.get_jobs())
-    logger.info(f"✅ Расписание настроено. Всего задач: {total_jobs}")
-    return total_jobs
-
-
+# ===================== ОСНОВНОЙ ПЛАНИРОВЩИК =====================
 def run_scheduler():
-    logger.info("⏰ Планировщик запущен")
-
+    """Основной цикл бота"""
+    logger.info("🚀 LSSD Bot запущен (UTC время)")
+    
+    # Настраиваем расписание
+    setup_schedule()
+    
+    # Отправляем тестовое сообщение
+    send_webhook("🤖 LSSD Bot перезапущен с правильным UTC временем", "Система")
+    
+    # Основной цикл
     while True:
         try:
             schedule.run_pending()
-            time.sleep(30)
-
-            if datetime.now().minute == 0:
-                logger.info(f"⏰ Серверное время: {datetime.now().strftime('%H:%M:%S')}")
-
+            time.sleep(58)  # 58 секунд
+            
+            # Лог каждый час
+            if datetime.utcnow().minute == 0:
+                logger.info(f"⏰ Текущее время UTC: {datetime.utcnow().strftime('%H:%M')}")
+                
         except KeyboardInterrupt:
-            logger.info("🛑 Планировщик остановлен")
             break
         except Exception as e:
-            logger.error(f"❌ Ошибка в планировщике: {e}")
+            logger.error(f"❌ Ошибка: {e}")
             time.sleep(60)
 
+# ===================== ЗАПУСК FLASK =====================
+def run_flask_server():
+    """Запускаем Flask сервер для Render"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-# ===================== ОСНОВНОЙ ЗАПУСК =====================
-def start_bot():
-    """Запускает бота для Render"""
-    logger.info("🚀 Запуск LSSD Recruitment Bot на Render")
-
-    # Проверка вебхука
-    if not WEBHOOK_URL or "discord.com/api/webhooks/" not in WEBHOOK_URL:
-        logger.error("❌ ВЕБХУК НЕ НАСТРОЕН!")
-        logger.error("💡 Добавьте переменную WEBHOOK_URL в настройках Render")
-        return
-
-    # Настраиваем расписание
-    setup_schedule()
-
-    # Отправляем уведомление о запуске
-    startup_msg = f"🔔 **LSSD Recruitment Bot запущен на Render**\n"
-    startup_msg += f"⏰ Время запуска: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-    startup_msg += f"📋 Отделов: {len(MESSAGES)}\n"
-    startup_msg += "🤖 Бот будет отправлять сообщения по расписанию"
-    send_webhook(startup_msg, "Система бота")
-
-    # Запускаем планировщик в основном потоке
-    run_scheduler()
-
-
+# ===================== ГЛАВНЫЙ ЗАПУСК =====================
 if __name__ == "__main__":
     # Запускаем Flask в отдельном потоке
-    flask_thread = Thread(target=run_flask, daemon=True)
+    flask_thread = Thread(target=run_flask_server, daemon=True)
     flask_thread.start()
-
+    
     # Даем Flask время запуститься
-    time.sleep(2)
-
+    time.sleep(3)
+    
     # Запускаем бота
     try:
-        start_bot()
-    except KeyboardInterrupt:
-        logger.info("👋 Бот остановлен")
+        run_scheduler()
     except Exception as e:
-
-        logger.error(f"❌ Критическая ошибка: {e}")
+        logger.error(f"💀 Критическая ошибка: {e}")
