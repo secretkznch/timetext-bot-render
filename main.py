@@ -322,7 +322,7 @@ def run_scheduler():
             time.sleep(58)  # 58 секунд
             
             # Лог каждый час
-            if datetime.utcnow().minute == 0:
+            if datetime.now().minute == 0:
                 logger.info(f"⏰ Текущее время UTC: {datetime.utcnow().strftime('%H:%M')}")
                 
         except KeyboardInterrupt:
@@ -351,3 +351,4 @@ if __name__ == "__main__":
         run_scheduler()
     except Exception as e:
         logger.error(f"💀 Критическая ошибка: {e}")
+
