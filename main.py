@@ -280,7 +280,7 @@ def setup_schedule():
     schedule.clear()
     
     # ВАЖНО: Keep-alive каждые 14 минут (меньше 15!)
-    schedule.every(14).minutes.do(keep_alive_ping)
+    schedule.every(5).minutes.do(keep_alive_ping)
     
     # РАСПИСАНИЕ В UTC!
     # RD
@@ -321,7 +321,7 @@ def run_scheduler():
     while True:
         try:
             schedule.run_pending()
-            time.sleep(58)  # 58 секунд
+            time.sleep(30)  # 58 секунд
             
             # Лог каждый час
             if datetime.now().minute == 0:
@@ -353,5 +353,6 @@ if __name__ == "__main__":
         run_scheduler()
     except Exception as e:
         logger.error(f"💀 Критическая ошибка: {e}")
+
 
 
